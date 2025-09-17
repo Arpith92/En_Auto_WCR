@@ -20,21 +20,29 @@ st.title("📝 Automated WCR Generator")
 # File Uploads
 # -------------------------
 excel_file = st.file_uploader("📂 Upload Input Excel (.xlsx)", type=["xlsx"])
+template_file = st.file_uploader("📂 Upload Word Template (.docx)", type=["docx"])
 generate_pdf = st.checkbox("Also generate PDFs", value=False)
 
 # -------------------------
 # Generate Files
 # -------------------------
-def generate_files(df: pd.DataFrame, as_pdf: bool = False):
+def generate_files(df: pd.DataFrame, template_bytes: bytes, as_pdf: bool = False):
     zip_buffer = io.BytesIO()
+
+    # Save template temporarily
+    template_path = "uploaded_template.docx"
+    with open(template_path, "wb") as f:
+        f.write(template_bytes)
+
     with ZipFile(zip_buffer, "w") as zipf:
         for _, row in df.iterrows():
             context = row.to_dict()
-            file_base = f"WCR_{context.get('WO_No', 'Unknown')}"
+            wo = str(context.get("wo_no", context.get("WO_No", "Unknown")))
+            file_base = f"WCR_{wo}"
 
             # --- Generate Word file ---
             tmp_docx = f"{file_base}.docx"
-            doc = DocxTemplate("Template.docx")  # <-- replace with your word template name
+            doc = DocxTemplate(template_path)
             doc.render(context)
             doc.save(tmp_docx)
 
@@ -48,8 +56,8 @@ def generate_files(df: pd.DataFrame, as_pdf: bool = False):
                 try:
                     if HAS_DOCX2PDF and os.name == "nt":  # Windows exact conversion
                         convert(tmp_docx, tmp_pdf)
-                    else:  # Linux fallback
-                        pypandoc.convert_file("Template.docx", "pdf", outputfile=tmp_pdf)
+                    else:  # Linux fallback (Streamlit Cloud)
+                        pypandoc.convert_file(template_path, "pdf", outputfile=tmp_pdf)
 
                     if os.path.exists(tmp_pdf):
                         with open(tmp_pdf, "rb") as f:
@@ -64,12 +72,12 @@ def generate_files(df: pd.DataFrame, as_pdf: bool = False):
 # -------------------------
 # Main App
 # -------------------------
-if excel_file:
+if excel_file and template_file:
     df = pd.read_excel(excel_file)
     st.dataframe(df.head(), use_container_width=True)
 
     if st.button("🚀 Generate WCR Files"):
-        zip_buffer = generate_files(df, as_pdf=generate_pdf)
+        zip_buffer = generate_files(df, template_file.read(), as_pdf=generate_pdf)
         st.success("Files generated successfully!")
 
         st.download_button(
