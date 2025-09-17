@@ -25,18 +25,24 @@ def _safe(x):
     return str(x).strip()
 
 # ==============================
-# File Upload (Excel)
+# File Upload (Excel only)
 # ==============================
 uploaded_excel = st.file_uploader("📂 Upload Input Excel (.xlsx)", type=["xlsx"])
-uploaded_template = st.file_uploader("📄 Upload Word Template (.docx)", type=["docx"])
+
+# Path to template in repo (always used)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_PATH = os.path.join(BASE_DIR, "sample.docx")
 
 # ==============================
 # Generate Word Files
 # ==============================
-def generate_word_zip(df: pd.DataFrame, template_bytes: bytes) -> io.BytesIO:
-    # Load template from uploaded file
-    tmp_template = io.BytesIO(template_bytes)
-    doc = DocxTemplate(tmp_template)
+def generate_word_zip(df: pd.DataFrame) -> io.BytesIO:
+    if not os.path.exists(TEMPLATE_PATH):
+        st.error("❌ Word template file (sample.docx) not found in repo.")
+        st.stop()
+
+    with open(TEMPLATE_PATH, "rb") as f:
+        template_bytes = f.read()
 
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
@@ -57,9 +63,9 @@ def generate_word_zip(df: pd.DataFrame, template_bytes: bytes) -> io.BytesIO:
                 "Re_date":        _safe(row.get("Re_date", "")),
             }
 
-            # Render and save each Word file
+            # Render using repo template
             tmp_doc = io.BytesIO()
-            doc = DocxTemplate(io.BytesIO(template_bytes))  # reload fresh template each time
+            doc = DocxTemplate(io.BytesIO(template_bytes))
             doc.render(context)
             doc.save(tmp_doc)
 
@@ -73,7 +79,7 @@ def generate_word_zip(df: pd.DataFrame, template_bytes: bytes) -> io.BytesIO:
 # ==============================
 # Main Workflow
 # ==============================
-if uploaded_excel and uploaded_template:
+if uploaded_excel:
     df = pd.read_excel(uploaded_excel)
     df.columns = df.columns.str.strip()
 
@@ -81,7 +87,7 @@ if uploaded_excel and uploaded_template:
     st.dataframe(df.head(), use_container_width=True)
 
     if st.button("⬇️ Generate Word Files"):
-        zip_buffer = generate_word_zip(df, uploaded_template.read())
+        zip_buffer = generate_word_zip(df)
         st.download_button(
             "📥 Download All Word Files (ZIP)",
             data=zip_buffer,
