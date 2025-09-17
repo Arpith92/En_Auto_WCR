@@ -4,13 +4,7 @@ from docxtpl import DocxTemplate
 from zipfile import ZipFile
 import io, os
 
-# PDF converters
-try:
-    from docx2pdf import convert
-    HAS_DOCX2PDF = True
-except ImportError:
-    HAS_DOCX2PDF = False
-
+# PDF fallback
 import pypandoc
 
 st.set_page_config(page_title="Automated WCR Generator", layout="wide")
@@ -29,7 +23,7 @@ generate_pdf = st.checkbox("Also generate PDFs", value=False)
 def generate_files(df: pd.DataFrame, template_bytes: bytes, as_pdf: bool = False):
     zip_buffer = io.BytesIO()
 
-    # Save template temporarily
+    # Save uploaded template temporarily
     template_path = "uploaded_template.docx"
     with open(template_path, "wb") as f:
         f.write(template_bytes)
@@ -54,11 +48,7 @@ def generate_files(df: pd.DataFrame, template_bytes: bytes, as_pdf: bool = False
             if as_pdf:
                 tmp_pdf = f"{file_base}.pdf"
                 try:
-                    if HAS_DOCX2PDF and os.name == "nt":  # Windows exact conversion
-                        convert(tmp_docx, tmp_pdf)
-                    else:  # Linux fallback (Streamlit Cloud)
-                        pypandoc.convert_file(template_path, "pdf", outputfile=tmp_pdf)
-
+                    pypandoc.convert_file(template_path, "pdf", outputfile=tmp_pdf)
                     if os.path.exists(tmp_pdf):
                         with open(tmp_pdf, "rb") as f:
                             zipf.writestr(tmp_pdf, f.read())
