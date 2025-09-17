@@ -3,22 +3,20 @@ import pandas as pd
 from docxtpl import DocxTemplate
 from zipfile import ZipFile
 import io, os
-
-# PDF fallback
 import pypandoc
 
 st.set_page_config(page_title="Automated WCR Generator", layout="wide")
 st.title("📝 Automated WCR Generator")
 
 # -------------------------
-# File Uploads
+# Upload files
 # -------------------------
 excel_file = st.file_uploader("📂 Upload Input Excel (.xlsx)", type=["xlsx"])
 template_file = st.file_uploader("📂 Upload Word Template (.docx)", type=["docx"])
 generate_pdf = st.checkbox("Also generate PDFs", value=False)
 
 # -------------------------
-# Generate Files
+# Generate files
 # -------------------------
 def generate_files(df: pd.DataFrame, template_bytes: bytes, as_pdf: bool = False):
     zip_buffer = io.BytesIO()
@@ -29,12 +27,12 @@ def generate_files(df: pd.DataFrame, template_bytes: bytes, as_pdf: bool = False
         f.write(template_bytes)
 
     with ZipFile(zip_buffer, "w") as zipf:
-        for _, row in df.iterrows():
+        for i, row in df.iterrows():
             context = row.to_dict()
-            wo = str(context.get("wo_no", context.get("WO_No", "Unknown")))
+            wo = str(context.get("wo_no", f"Row{i+1}"))
             file_base = f"WCR_{wo}"
 
-            # --- Generate Word file ---
+            # --- Generate Word ---
             tmp_docx = f"{file_base}.docx"
             doc = DocxTemplate(template_path)
             doc.render(context)
@@ -44,7 +42,7 @@ def generate_files(df: pd.DataFrame, template_bytes: bytes, as_pdf: bool = False
                 zipf.writestr(tmp_docx, f.read())
             os.remove(tmp_docx)
 
-            # --- Generate PDF if selected ---
+            # --- Generate PDF ---
             if as_pdf:
                 tmp_pdf = f"{file_base}.pdf"
                 try:
@@ -60,7 +58,7 @@ def generate_files(df: pd.DataFrame, template_bytes: bytes, as_pdf: bool = False
     return zip_buffer
 
 # -------------------------
-# Main App
+# App UI
 # -------------------------
 if excel_file and template_file:
     df = pd.read_excel(excel_file)
@@ -68,10 +66,10 @@ if excel_file and template_file:
 
     if st.button("🚀 Generate WCR Files"):
         zip_buffer = generate_files(df, template_file.read(), as_pdf=generate_pdf)
-        st.success("Files generated successfully!")
+        st.success("✅ Files generated successfully!")
 
         st.download_button(
-            "⬇️ Download All WCR Files (ZIP)",
+            "⬇️ Download All Files (ZIP)",
             data=zip_buffer,
             file_name="WCR_Output.zip",
             mime="application/zip",
