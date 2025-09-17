@@ -1,77 +1,108 @@
-import streamlit as st
-import pandas as pd
-from docxtpl import DocxTemplate
-from zipfile import ZipFile
-import io, os
-import pypandoc
+# app.py – Automated WCR Generator (Excel → Word/PDF)
 
+from __future__ import annotations
+import os, io, zipfile
+from datetime import datetime
+import pandas as pd
+import streamlit as st
+from docxtpl import DocxTemplate
+from fpdf import FPDF  # fpdf2
+
+# ==============================
+# Streamlit Page Config
+# ==============================
 st.set_page_config(page_title="Automated WCR Generator", layout="wide")
 st.title("📝 Automated WCR Generator")
 
-# -------------------------
-# Upload files
-# -------------------------
-excel_file = st.file_uploader("📂 Upload Input Excel (.xlsx)", type=["xlsx"])
-template_file = st.file_uploader("📂 Upload Word Template (.docx)", type=["docx"])
-generate_pdf = st.checkbox("Also generate PDFs", value=False)
+# ==============================
+# File Upload (Excel only)
+# ==============================
+uploaded_excel = st.file_uploader("📂 Upload Input Excel (.xlsx)", type=["xlsx"])
 
-# -------------------------
-# Generate files
-# -------------------------
-def generate_files(df: pd.DataFrame, template_bytes: bytes, as_pdf: bool = False):
+# Path to template (kept in repo/GitHub)
+TEMPLATE_PATH = "sample.docx"   # <- make sure this file is in your repo
+
+# ==============================
+# PDF Helper
+# ==============================
+def pdf_from_context(context: dict) -> bytes:
+    pdf = FPDF(format="A4")
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=12)
+
+    pdf.cell(0, 10, "Work Completion Report", ln=True, align="C")
+    pdf.ln(5)
+
+    for k, v in context.items():
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(60, 8, f"{k}:", border=0)
+        pdf.set_font("Helvetica", "", 11)
+        pdf.multi_cell(0, 8, str(v))
+        pdf.ln(1)
+
+    out = pdf.output(dest="S")
+    return out if isinstance(out, (bytes, bytearray)) else str(out).encode("latin-1", errors="ignore")
+
+# ==============================
+# Core File Generator
+# ==============================
+def generate_files(df: pd.DataFrame, as_pdf: bool = False):
+    if not os.path.exists(TEMPLATE_PATH):
+        st.error("❌ Word template file (sample.docx) not found in repo.")
+        st.stop()
+
     zip_buffer = io.BytesIO()
-
-    # Save uploaded template temporarily
-    template_path = "uploaded_template.docx"
-    with open(template_path, "wb") as f:
-        f.write(template_bytes)
-
-    with ZipFile(zip_buffer, "w") as zipf:
+    with zipfile.ZipFile(zip_buffer, "w") as zipf:
         for i, row in df.iterrows():
             context = row.to_dict()
-            wo = str(context.get("wo_no", f"Row{i+1}"))
-            file_base = f"WCR_{wo}"
 
-            # --- Generate Word ---
-            tmp_docx = f"{file_base}.docx"
-            doc = DocxTemplate(template_path)
-            doc.render(context)
-            doc.save(tmp_docx)
+            # Format dates
+            for fld in ["po_date", "wo_date", "Re_date"]:
+                if fld in context and pd.notna(context[fld]):
+                    context[fld] = pd.to_datetime(context[fld]).strftime("%Y-%m-%d")
 
-            with open(tmp_docx, "rb") as f:
-                zipf.writestr(tmp_docx, f.read())
-            os.remove(tmp_docx)
+            file_base = context.get("WO_No", f"WCR_{i+1}")
+            file_name = f"{file_base}.{'pdf' if as_pdf else 'docx'}"
 
-            # --- Generate PDF ---
             if as_pdf:
-                tmp_pdf = f"{file_base}.pdf"
-                try:
-                    pypandoc.convert_file(template_path, "pdf", outputfile=tmp_pdf)
-                    if os.path.exists(tmp_pdf):
-                        with open(tmp_pdf, "rb") as f:
-                            zipf.writestr(tmp_pdf, f.read())
-                        os.remove(tmp_pdf)
-                except Exception as e:
-                    st.warning(f"⚠️ PDF conversion failed for {file_base}: {e}")
+                pdf_bytes = pdf_from_context(context)
+                zipf.writestr(file_name, pdf_bytes)
+            else:
+                doc = DocxTemplate(TEMPLATE_PATH)
+                doc.render(context)
+                tmp = io.BytesIO()
+                doc.save(tmp)
+                zipf.writestr(file_name, tmp.getvalue())
 
     zip_buffer.seek(0)
     return zip_buffer
 
-# -------------------------
-# App UI
-# -------------------------
-if excel_file and template_file:
-    df = pd.read_excel(excel_file)
+# ==============================
+# Main Workflow
+# ==============================
+if uploaded_excel:
+    df = pd.read_excel(uploaded_excel)
+    st.success(f"✅ Loaded {len(df)} rows from Excel.")
     st.dataframe(df.head(), use_container_width=True)
 
-    if st.button("🚀 Generate WCR Files"):
-        zip_buffer = generate_files(df, template_file.read(), as_pdf=generate_pdf)
-        st.success("✅ Files generated successfully!")
-
-        st.download_button(
-            "⬇️ Download All Files (ZIP)",
-            data=zip_buffer,
-            file_name="WCR_Output.zip",
-            mime="application/zip",
-            use_container_width=True
-        )
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("⬇️ Generate Word Files"):
+            zip_buffer = generate_files(df, as_pdf=False)
+            st.download_button(
+                "📥 Download All Word Files (ZIP)",
+                data=zip_buffer,
+                file_name="WCR_Word_Files.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
+    with col2:
+        if st.button("⬇️ Generate PDF Files"):
+            zip_buffer = generate_files(df, as_pdf=True)
+            st.download_button(
+                "📥 Download All PDF Files (ZIP)",
+                data=zip_buffer,
+                file_name="WCR_PDF_Files.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
