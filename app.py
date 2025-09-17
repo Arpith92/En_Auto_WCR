@@ -6,7 +6,7 @@ from docxtpl import DocxTemplate
 from zipfile import ZipFile
 import streamlit as st
 
-# Try PDF conversion (Windows-only with MS Word)
+# Try PDF conversion (only works on Windows with MS Word installed)
 try:
     from docx2pdf import convert
     HAS_DOCX2PDF = True
@@ -18,7 +18,7 @@ st.title("📑 Automated WCR Generator")
 
 uploaded_excel = st.file_uploader("Upload Input Excel", type=["xlsx"])
 
-# ---- Helper Functions ----
+# ---- Helpers ----
 def _safe(x):
     if pd.isna(x):
         return ""
@@ -66,7 +66,7 @@ def generate_files(df, as_pdf=False):
 
             template_doc = "sample.docx"
             if not os.path.exists(template_doc):
-                st.error("❌ Template file 'sample.docx' not found!")
+                st.error("❌ Template file 'sample.docx' not found in repo root!")
                 st.stop()
 
             doc = DocxTemplate(template_doc)
@@ -75,7 +75,7 @@ def generate_files(df, as_pdf=False):
             wo = context["wo_no"] or f"Row{i+1}"
             word_filename = f"WCR_{wo}.docx"
 
-            # Save Word
+            # Save Word in memory
             temp_word = io.BytesIO()
             doc.save(temp_word)
             temp_word.seek(0)
@@ -101,7 +101,7 @@ def generate_files(df, as_pdf=False):
     memory_zip.seek(0)
     return memory_zip
 
-# ---- Process Excel ----
+# ---- UI ----
 if uploaded_excel:
     df = pd.read_excel(uploaded_excel)
     df.columns = df.columns.str.strip()
