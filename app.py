@@ -6,7 +6,7 @@ from docxtpl import DocxTemplate
 from zipfile import ZipFile
 import streamlit as st
 
-# Try PDF conversion (only works on Windows with MS Word)
+# Try PDF conversion (Windows-only with MS Word)
 try:
     from docx2pdf import convert
     HAS_DOCX2PDF = True
@@ -16,13 +16,10 @@ except ImportError:
 st.set_page_config(page_title="Automated WCR Generator", page_icon="📑", layout="centered")
 st.title("📑 Automated WCR Generator")
 
-# ---- Upload Excel ----
 uploaded_excel = st.file_uploader("Upload Input Excel", type=["xlsx"])
-generate_pdf = st.checkbox("Also generate PDFs (⚠️ Works only on Windows with MS Word)", value=False)
 
 # ---- Helper Functions ----
 def _safe(x):
-    """Convert NaN/datetime/None into a clean string."""
     if pd.isna(x):
         return ""
     if isinstance(x, (datetime, pd.Timestamp)):
@@ -31,17 +28,12 @@ def _safe(x):
 
 def normalize_headers(df):
     rename_map = {
-        "wo no": "wo_no",
-        "wo_no": "wo_no",
-        "wo date": "wo_date",
-        "wo_date": "wo_date",
-        "wo des": "wo_des",
-        "wo_des": "wo_des",
-        "location_code": "Location_code",
-        "Location_code": "Location_code",
+        "wo no": "wo_no", "wo_no": "wo_no",
+        "wo date": "wo_date", "wo_date": "wo_date",
+        "wo des": "wo_des", "wo_des": "wo_des",
+        "location_code": "Location_code", "Location_code": "Location_code",
         "customername_code": "customername_code",
-        "capacity_code": "Capacity_code",
-        "Capacity_code": "Capacity_code",
+        "capacity_code": "Capacity_code", "Capacity_code": "Capacity_code",
         "Previous Bill Qty": "PB_qty",
         "THIS BILL QTY ( Final Bill Qty )": "TB_Qty",
         "CUMULATIVE QTY": "cu_qty",
@@ -52,12 +44,7 @@ def normalize_headers(df):
     }
     return df.rename(columns={c: rename_map.get(c, c) for c in df.columns})
 
-# ---- Process Uploaded File ----
-if uploaded_excel:
-    df = pd.read_excel(uploaded_excel)
-    df.columns = df.columns.str.strip()
-    df = normalize_headers(df)
-
+def generate_files(df, as_pdf=False):
     memory_zip = io.BytesIO()
     with ZipFile(memory_zip, "w") as zf:
         for i, row in df.iterrows():
@@ -77,10 +64,9 @@ if uploaded_excel:
                 "Re_date": _safe(row.get("Re_date", "")),
             }
 
-            # Load template from repo root
             template_doc = "sample.docx"
             if not os.path.exists(template_doc):
-                st.error("❌ Template file 'sample.docx' not found in app directory!")
+                st.error("❌ Template file 'sample.docx' not found!")
                 st.stop()
 
             doc = DocxTemplate(template_doc)
@@ -89,14 +75,14 @@ if uploaded_excel:
             wo = context["wo_no"] or f"Row{i+1}"
             word_filename = f"WCR_{wo}.docx"
 
-            # Save Word into memory
+            # Save Word
             temp_word = io.BytesIO()
             doc.save(temp_word)
             temp_word.seek(0)
             zf.writestr(word_filename, temp_word.read())
 
-            # PDF (only if Windows + Word)
-            if generate_pdf:
+            # Save PDF if requested
+            if as_pdf:
                 if HAS_DOCX2PDF and os.name == "nt":
                     try:
                         import tempfile
@@ -110,14 +96,35 @@ if uploaded_excel:
                     except Exception as e:
                         st.warning(f"⚠️ PDF conversion failed for {wo}: {e}")
                 else:
-                    st.warning("⚠️ PDF conversion not available on this server (Linux). Download Word files instead.")
+                    st.warning("⚠️ PDF conversion not available on this server (Linux).")
 
     memory_zip.seek(0)
-    st.success("✅ All WCR files generated successfully!")
+    return memory_zip
 
-    st.download_button(
-        "⬇️ Download All (ZIP)",
-        data=memory_zip,
-        file_name="WCR_Files.zip",
-        mime="application/zip"
-    )
+# ---- Process Excel ----
+if uploaded_excel:
+    df = pd.read_excel(uploaded_excel)
+    df.columns = df.columns.str.strip()
+    df = normalize_headers(df)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("⬇️ Generate Word (ZIP)"):
+            zip_buffer = generate_files(df, as_pdf=False)
+            st.download_button(
+                "Download Word Files",
+                data=zip_buffer,
+                file_name="WCR_Word_Files.zip",
+                mime="application/zip"
+            )
+
+    with col2:
+        if st.button("⬇️ Generate PDF (ZIP)"):
+            zip_buffer = generate_files(df, as_pdf=True)
+            st.download_button(
+                "Download PDF Files",
+                data=zip_buffer,
+                file_name="WCR_PDF_Files.zip",
+                mime="application/zip"
+            )
