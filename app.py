@@ -19,11 +19,12 @@ st.title("📝 Automated WCR Generator")
 # ==============================
 uploaded_excel = st.file_uploader("📂 Upload Input Excel (.xlsx)", type=["xlsx"])
 
-# Path to template (kept in repo/GitHub)
-TEMPLATE_PATH = "sample.docx"   # <- make sure this file is in your repo
+# Path to template inside repo
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_PATH = os.path.join(BASE_DIR, "sample.docx")
 
 # ==============================
-# PDF Helper
+# PDF Helper (fallback simple)
 # ==============================
 def pdf_from_context(context: dict) -> bytes:
     pdf = FPDF(format="A4")
@@ -56,18 +57,20 @@ def generate_files(df: pd.DataFrame, as_pdf: bool = False):
         for i, row in df.iterrows():
             context = row.to_dict()
 
-            # Format dates
+            # Format dates if present
             for fld in ["po_date", "wo_date", "Re_date"]:
                 if fld in context and pd.notna(context[fld]):
                     context[fld] = pd.to_datetime(context[fld]).strftime("%Y-%m-%d")
 
-            file_base = context.get("WO_No", f"WCR_{i+1}")
+            file_base = context.get("wo_no", f"WCR_{i+1}")
             file_name = f"{file_base}.{'pdf' if as_pdf else 'docx'}"
 
             if as_pdf:
+                # Fallback: create a simplified PDF
                 pdf_bytes = pdf_from_context(context)
                 zipf.writestr(file_name, pdf_bytes)
             else:
+                # Full Word file from template
                 doc = DocxTemplate(TEMPLATE_PATH)
                 doc.render(context)
                 tmp = io.BytesIO()
