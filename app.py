@@ -1,4 +1,4 @@
-# app.py – Automated WCR Generator (Excel → Word)
+# app.py – Automated WCR Generator (Excel → Word Only)
 
 from __future__ import annotations
 import os, io, zipfile
