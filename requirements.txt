@@ -13,3 +13,4 @@ pyperclip==1.8.2
 matplotlib==3.8.4
 XlsxWriter>=3.2.0
 fpdf2>=2.7
+docxtpl==0.20.1
