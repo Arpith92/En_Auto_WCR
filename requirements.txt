@@ -1,6 +1,6 @@
 streamlit==1.39.0
 pandas==2.2.2
+openpyxl==3.1.2
 docxtpl==0.20.1
 python-docx==1.1.0
 fpdf2==2.7.8
-openpyxl==3.1.2
