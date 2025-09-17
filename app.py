@@ -6,23 +6,30 @@ from docxtpl import DocxTemplate
 from zipfile import ZipFile
 import streamlit as st
 
+# Try PDF conversion (only works on Windows with MS Word)
 try:
     from docx2pdf import convert
+    HAS_DOCX2PDF = True
 except ImportError:
-    convert = None
+    HAS_DOCX2PDF = False
 
-# ---- Streamlit UI ----
+st.set_page_config(page_title="Automated WCR Generator", page_icon="📑", layout="centered")
 st.title("📑 Automated WCR Generator")
 
+# ---- Upload Excel ----
 uploaded_excel = st.file_uploader("Upload Input Excel", type=["xlsx"])
-generate_pdf = st.checkbox("Also generate PDFs", value=True)
+generate_pdf = st.checkbox("Also generate PDFs (⚠️ Works only on Windows with MS Word)", value=False)
 
-if uploaded_excel:
-    # Load Excel
-    df = pd.read_excel(uploaded_excel)
-    df.columns = df.columns.str.strip()
+# ---- Helper Functions ----
+def _safe(x):
+    """Convert NaN/datetime/None into a clean string."""
+    if pd.isna(x):
+        return ""
+    if isinstance(x, (datetime, pd.Timestamp)):
+        return x.strftime("%d-%m-%Y")
+    return str(x).strip()
 
-    # Normalize headers
+def normalize_headers(df):
     rename_map = {
         "wo no": "wo_no",
         "wo_no": "wo_no",
@@ -43,16 +50,14 @@ if uploaded_excel:
         "Scada_incharge": "Scada_incharge",
         "Re_date": "Re_date",
     }
-    df = df.rename(columns={c: rename_map.get(c, c) for c in df.columns})
+    return df.rename(columns={c: rename_map.get(c, c) for c in df.columns})
 
-    def _safe(x):
-        if pd.isna(x):
-            return ""
-        if isinstance(x, (datetime, pd.Timestamp)):
-            return x.strftime("%d-%m-%Y")
-        return str(x).strip()
+# ---- Process Uploaded File ----
+if uploaded_excel:
+    df = pd.read_excel(uploaded_excel)
+    df.columns = df.columns.str.strip()
+    df = normalize_headers(df)
 
-    # Prepare in-memory ZIP
     memory_zip = io.BytesIO()
     with ZipFile(memory_zip, "w") as zf:
         for i, row in df.iterrows():
@@ -72,8 +77,12 @@ if uploaded_excel:
                 "Re_date": _safe(row.get("Re_date", "")),
             }
 
-            # Load template.docx from repo
-            template_doc = "sample.docx"   # keep this in your repo
+            # Load template from repo root
+            template_doc = "sample.docx"
+            if not os.path.exists(template_doc):
+                st.error("❌ Template file 'sample.docx' not found in app directory!")
+                st.stop()
+
             doc = DocxTemplate(template_doc)
             doc.render(context)
 
@@ -86,24 +95,25 @@ if uploaded_excel:
             temp_word.seek(0)
             zf.writestr(word_filename, temp_word.read())
 
-            # Optionally generate PDF
+            # PDF (only if Windows + Word)
             if generate_pdf:
-                try:
-                    from docx2pdf import convert
-                    import tempfile
-
-                    with tempfile.TemporaryDirectory() as tmpdir:
-                        word_path = os.path.join(tmpdir, word_filename)
-                        pdf_path = word_path.replace(".docx", ".pdf")
-                        doc.save(word_path)
-                        convert(word_path, pdf_path)
-                        with open(pdf_path, "rb") as fpdf:
-                            zf.writestr(f"WCR_{wo}.pdf", fpdf.read())
-                except Exception as e:
-                    st.warning(f"PDF conversion failed for {wo}: {e}")
+                if HAS_DOCX2PDF and os.name == "nt":
+                    try:
+                        import tempfile
+                        with tempfile.TemporaryDirectory() as tmpdir:
+                            word_path = os.path.join(tmpdir, word_filename)
+                            pdf_path = word_path.replace(".docx", ".pdf")
+                            doc.save(word_path)
+                            convert(word_path, pdf_path)
+                            with open(pdf_path, "rb") as fpdf:
+                                zf.writestr(f"WCR_{wo}.pdf", fpdf.read())
+                    except Exception as e:
+                        st.warning(f"⚠️ PDF conversion failed for {wo}: {e}")
+                else:
+                    st.warning("⚠️ PDF conversion not available on this server (Linux). Download Word files instead.")
 
     memory_zip.seek(0)
-    st.success("✅ All WCR files generated!")
+    st.success("✅ All WCR files generated successfully!")
 
     st.download_button(
         "⬇️ Download All (ZIP)",
