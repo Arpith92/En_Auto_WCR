@@ -1,108 +1,97 @@
-# app.py – Automated WCR Generator (Excel → Word/PDF)
-
-from __future__ import annotations
-import os, io, zipfile
-from datetime import datetime
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import io, zipfile, os
 from docxtpl import DocxTemplate
-from fpdf import FPDF  # fpdf2
 
-# ==============================
+# Optional PDF conversion
+try:
+    from docx2pdf import convert  # Only works on Windows with MS Word installed
+    HAS_DOCX2PDF = True
+except Exception:
+    HAS_DOCX2PDF = False
+
+# =========================
 # Streamlit Page Config
-# ==============================
-st.set_page_config(page_title="Automated WCR Generator", layout="wide")
+# =========================
+st.set_page_config(page_title="Automated WCR Generator", layout="centered")
 st.title("📝 Automated WCR Generator")
 
-# ==============================
-# File Upload (Excel only)
-# ==============================
+st.markdown("Upload your Excel file to auto-generate Word/PDF files based on template.")
+
+# =========================
+# File Uploads
+# =========================
 uploaded_excel = st.file_uploader("📂 Upload Input Excel (.xlsx)", type=["xlsx"])
+generate_pdf = st.checkbox("Also generate PDFs (only works on Windows)", value=False)
 
-# Path to template (kept in repo/GitHub)
-TEMPLATE_PATH = "sample.docx"   # <- make sure this file is in your repo
+TEMPLATE_PATH = "sample.docx"  # keep your template in repo
 
-# ==============================
-# PDF Helper
-# ==============================
-def pdf_from_context(context: dict) -> bytes:
-    pdf = FPDF(format="A4")
-    pdf.add_page()
-    pdf.set_font("Helvetica", size=12)
-
-    pdf.cell(0, 10, "Work Completion Report", ln=True, align="C")
-    pdf.ln(5)
-
-    for k, v in context.items():
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(60, 8, f"{k}:", border=0)
-        pdf.set_font("Helvetica", "", 11)
-        pdf.multi_cell(0, 8, str(v))
-        pdf.ln(1)
-
-    out = pdf.output(dest="S")
-    return out if isinstance(out, (bytes, bytearray)) else str(out).encode("latin-1", errors="ignore")
-
-# ==============================
-# Core File Generator
-# ==============================
+# =========================
+# File Generation Function
+# =========================
 def generate_files(df: pd.DataFrame, as_pdf: bool = False):
     if not os.path.exists(TEMPLATE_PATH):
-        st.error("❌ Word template file (sample.docx) not found in repo.")
+        st.error("❌ Word template file not found in repo. Add sample.docx")
         st.stop()
 
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
         for i, row in df.iterrows():
             context = row.to_dict()
-
             # Format dates
             for fld in ["po_date", "wo_date", "Re_date"]:
                 if fld in context and pd.notna(context[fld]):
                     context[fld] = pd.to_datetime(context[fld]).strftime("%Y-%m-%d")
 
             file_base = context.get("WO_No", f"WCR_{i+1}")
-            file_name = f"{file_base}.{'pdf' if as_pdf else 'docx'}"
 
-            if as_pdf:
-                pdf_bytes = pdf_from_context(context)
-                zipf.writestr(file_name, pdf_bytes)
-            else:
-                doc = DocxTemplate(TEMPLATE_PATH)
-                doc.render(context)
-                tmp = io.BytesIO()
-                doc.save(tmp)
-                zipf.writestr(file_name, tmp.getvalue())
+            # Render Word file
+            doc = DocxTemplate(TEMPLATE_PATH)
+            doc.render(context)
+
+            tmp_docx = f"{file_base}.docx"
+            doc.save(tmp_docx)
+
+            # Add Word file to ZIP
+            with open(tmp_docx, "rb") as f:
+                zipf.writestr(tmp_docx, f.read())
+
+            # Convert to PDF (Windows only)
+            if as_pdf and HAS_DOCX2PDF:
+                try:
+                    tmp_pdf = f"{file_base}.pdf"
+                    convert(tmp_docx, tmp_pdf)
+                    with open(tmp_pdf, "rb") as f:
+                        zipf.writestr(tmp_pdf, f.read())
+                    os.remove(tmp_pdf)
+                except Exception as e:
+                    st.warning(f"⚠️ PDF conversion failed for {file_base}: {e}")
+
+            # Clean up local docx
+            os.remove(tmp_docx)
 
     zip_buffer.seek(0)
     return zip_buffer
 
-# ==============================
-# Main Workflow
-# ==============================
-if uploaded_excel:
-    df = pd.read_excel(uploaded_excel)
-    st.success(f"✅ Loaded {len(df)} rows from Excel.")
-    st.dataframe(df.head(), use_container_width=True)
+# =========================
+# Main Logic
+# =========================
+if uploaded_excel is not None:
+    try:
+        df = pd.read_excel(uploaded_excel)
+        st.success(f"✅ Loaded {len(df)} records from Excel.")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("⬇️ Generate Word Files"):
-            zip_buffer = generate_files(df, as_pdf=False)
+        if st.button("🚀 Generate Files"):
+            with st.spinner("Generating files..."):
+                zip_buffer = generate_files(df, as_pdf=generate_pdf)
+            st.success("🎉 Files generated successfully!")
+
             st.download_button(
-                "📥 Download All Word Files (ZIP)",
+                label="⬇️ Download ZIP",
                 data=zip_buffer,
-                file_name="WCR_Word_Files.zip",
+                file_name="WCR_Files.zip",
                 mime="application/zip",
-                use_container_width=True,
+                use_container_width=True
             )
-    with col2:
-        if st.button("⬇️ Generate PDF Files"):
-            zip_buffer = generate_files(df, as_pdf=True)
-            st.download_button(
-                "📥 Download All PDF Files (ZIP)",
-                data=zip_buffer,
-                file_name="WCR_PDF_Files.zip",
-                mime="application/zip",
-                use_container_width=True,
-            )
+    except Exception as e:
+        st.error(f"❌ Failed to process Excel: {e}")
