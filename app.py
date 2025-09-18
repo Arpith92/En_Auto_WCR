@@ -1,4 +1,4 @@
-# app.py – Automated WCR Generator (Word Only, dynamic rows)
+# app.py – Automated WCR Generator (Word Only, dynamic table rows)
 
 import os, io, zipfile
 import pandas as pd
@@ -9,15 +9,15 @@ from docxtpl import DocxTemplate
 # ==============================
 # Streamlit Page Config
 # ==============================
-st.set_page_config(page_title="Automated WCR Generator (Word Only)", layout="wide")
-st.title("📝 Automated WCR Generator (Word Only)")
+st.set_page_config(page_title="Automated WCR Generator", layout="wide")
+st.title("📝 Automated WCR Generator (Word Only, Dynamic Rows)")
 
 # ==============================
 # File Upload
 # ==============================
 uploaded_excel = st.file_uploader("📂 Upload Input Excel (.xlsx)", type=["xlsx"])
 
-# Path to Word template (must exist in repo)
+# Path to Word template (keep in repo)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "sample.docx")
 
@@ -40,7 +40,7 @@ def generate_files(df: pd.DataFrame):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
         for i, row in df.iterrows():
-            # Context for header fields
+            # Base context
             context = {
                 "wo_no": _safe(row.get("wo_no")),
                 "wo_date": _safe(row.get("wo_date")),
@@ -55,11 +55,11 @@ def generate_files(df: pd.DataFrame):
                 "Payment_Terms": _safe(row.get("Payment Terms")),
             }
 
-            # Build dynamic line items (Line_1, Line_2, Line_3…)
+            # Build dynamic table items
             items = []
             for n in [1, 2, 3]:
                 desc = _safe(row.get(f"Line_{n}", ""))
-                if desc:  # add only if description is present
+                if desc:  # only add row if description present
                     items.append({
                         "sr_no": len(items) + 1,
                         "description": desc,
@@ -70,9 +70,9 @@ def generate_files(df: pd.DataFrame):
                         "B_qty": _safe(row.get(f"Line_{n}_B_qty")),
                     })
 
-            context["items"] = items  # 🔑 matches {% for item in items %} in Word
+            context["items"] = items
 
-            # Render Word
+            # Render Word file
             doc = DocxTemplate(TEMPLATE_PATH)
             doc.render(context)
 
