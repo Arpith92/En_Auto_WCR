@@ -9,8 +9,8 @@ from docxtpl import DocxTemplate
 # ==============================
 # Streamlit Page Config
 # ==============================
-st.set_page_config(page_title="Automated WCR Generator", layout="wide")
-st.title("📝 Automated WCR Generator (Word Only, Dynamic Rows)")
+st.set_page_config(page_title="Automated WCR Generator (Word Only)", layout="wide")
+st.title("📝 Automated WCR Generator (Word Only)")
 
 # ==============================
 # File Upload
@@ -25,11 +25,13 @@ TEMPLATE_PATH = os.path.join(BASE_DIR, "sample.docx")
 # Helpers
 # ==============================
 def _safe(x):
-    """Convert NaN/datetime/None into a clean string."""
+    """Convert NaN/datetime/None into clean string with 2 decimals for numbers."""
     if pd.isna(x):
         return ""
     if isinstance(x, (datetime, pd.Timestamp)):
         return x.strftime("%d-%m-%Y")
+    if isinstance(x, (int, float)):
+        return f"{x:.2f}"
     return str(x).strip()
 
 def generate_files(df: pd.DataFrame):
@@ -40,7 +42,7 @@ def generate_files(df: pd.DataFrame):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
         for i, row in df.iterrows():
-            # Base context
+            # Header context
             context = {
                 "wo_no": _safe(row.get("wo_no")),
                 "wo_date": _safe(row.get("wo_date")),
@@ -55,13 +57,13 @@ def generate_files(df: pd.DataFrame):
                 "Payment_Terms": _safe(row.get("Payment Terms")),
             }
 
-            # Build dynamic table items
-            items = []
+            # Line items
+            line_items = []
             for n in [1, 2, 3]:
                 desc = _safe(row.get(f"Line_{n}", ""))
-                if desc:  # only add row if description present
-                    items.append({
-                        "sr_no": len(items) + 1,
+                if desc:  # only add if not blank
+                    line_items.append({
+                        "sr_no": len(line_items) + 1,
                         "description": desc,
                         "WO_qty": _safe(row.get(f"Line_{n}_WO_qty")),
                         "PB_qty": _safe(row.get(f"Line_{n}_PB_qty")),
@@ -70,9 +72,9 @@ def generate_files(df: pd.DataFrame):
                         "B_qty": _safe(row.get(f"Line_{n}_B_qty")),
                     })
 
-            context["items"] = items
+            context["line_items"] = line_items
 
-            # Render Word file
+            # Render into Word
             doc = DocxTemplate(TEMPLATE_PATH)
             doc.render(context)
 
