@@ -1,4 +1,5 @@
-# app.py – Automated WCR Generator (Word Only, with dynamic rows)
+# app.py – Automated WCR Generator (Word Only, dynamic rows)
+
 import os, io, zipfile
 import pandas as pd
 import streamlit as st
@@ -39,7 +40,7 @@ def generate_files(df: pd.DataFrame):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
         for i, row in df.iterrows():
-            # Header-level context
+            # Context for header fields
             context = {
                 "wo_no": _safe(row.get("wo_no")),
                 "wo_date": _safe(row.get("wo_date")),
@@ -54,23 +55,22 @@ def generate_files(df: pd.DataFrame):
                 "Payment_Terms": _safe(row.get("Payment Terms")),
             }
 
-            # Build dynamic line items
-            line_items = []
+            # Build dynamic line items (Line_1, Line_2, Line_3…)
+            items = []
             for n in [1, 2, 3]:
                 desc = _safe(row.get(f"Line_{n}", ""))
-                if desc:  # add row only if description is present
-                    line_items.append({
-                        "sr_no": len(line_items) + 1,
+                if desc:  # add only if description is present
+                    items.append({
+                        "sr_no": len(items) + 1,
                         "description": desc,
                         "WO_qty": _safe(row.get(f"Line_{n}_WO_qty")),
                         "PB_qty": _safe(row.get(f"Line_{n}_PB_qty")),
                         "TB_Qty": _safe(row.get(f"Line_{n}_TB_Qty")),
                         "cu_qty": _safe(row.get(f"Line_{n}_cu_qty")),
                         "B_qty": _safe(row.get(f"Line_{n}_B_qty")),
-                        "remarks": _safe(row.get(f"Line_{n}_remarks", "")),  # optional
                     })
 
-            context["items"] = line_items
+            context["items"] = items  # 🔑 matches {% for item in items %} in Word
 
             # Render Word
             doc = DocxTemplate(TEMPLATE_PATH)
