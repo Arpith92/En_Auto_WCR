@@ -16,7 +16,7 @@ st.title("📝 Automated WCR Generator (Word Only)")
 # ==============================
 uploaded_excel = st.file_uploader("📂 Upload Input Excel (.xlsx)", type=["xlsx"])
 
-# Path to Word template (keep in repo)
+# Path to Word template (must exist in repo)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "sample.docx")
 
@@ -39,6 +39,7 @@ def generate_files(df: pd.DataFrame):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
         for i, row in df.iterrows():
+            # Header-level context
             context = {
                 "wo_no": _safe(row.get("wo_no")),
                 "wo_date": _safe(row.get("wo_date")),
@@ -57,7 +58,7 @@ def generate_files(df: pd.DataFrame):
             line_items = []
             for n in [1, 2, 3]:
                 desc = _safe(row.get(f"Line_{n}", ""))
-                if desc:  # only add row if description is present
+                if desc:  # add row only if description is present
                     line_items.append({
                         "sr_no": len(line_items) + 1,
                         "description": desc,
@@ -66,9 +67,10 @@ def generate_files(df: pd.DataFrame):
                         "TB_Qty": _safe(row.get(f"Line_{n}_TB_Qty")),
                         "cu_qty": _safe(row.get(f"Line_{n}_cu_qty")),
                         "B_qty": _safe(row.get(f"Line_{n}_B_qty")),
+                        "remarks": _safe(row.get(f"Line_{n}_remarks", "")),  # optional
                     })
 
-            context["line_items"] = line_items
+            context["items"] = line_items
 
             # Render Word
             doc = DocxTemplate(TEMPLATE_PATH)
