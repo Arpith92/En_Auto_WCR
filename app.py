@@ -1,4 +1,4 @@
-# app.py – Automated WCR Generator (Word Only, with dynamic rows, 2 decimals)
+# app.py – Automated WCR Generator (Word Only, dynamic table rows)
 
 import os, io, zipfile
 import pandas as pd
@@ -9,15 +9,15 @@ from docxtpl import DocxTemplate
 # ==============================
 # Streamlit Page Config
 # ==============================
-st.set_page_config(page_title="Automated WCR Generator (Word Only)", layout="wide")
-st.title("📝 Automated WCR Generator (Word Only)")
+st.set_page_config(page_title="Automated WCR Generator", layout="wide")
+st.title("📝 Automated WCR Generator (Word Only, Dynamic Rows)")
 
 # ==============================
 # File Upload
 # ==============================
 uploaded_excel = st.file_uploader("📂 Upload Input Excel (.xlsx)", type=["xlsx"])
 
-# Path to Word template (must exist in repo)
+# Path to Word template (keep in repo)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "sample.docx")
 
@@ -25,13 +25,11 @@ TEMPLATE_PATH = os.path.join(BASE_DIR, "sample.docx")
 # Helpers
 # ==============================
 def _safe(x):
-    """Convert NaN/datetime/None into clean string; numbers → 2 decimals."""
+    """Convert NaN/datetime/None into a clean string."""
     if pd.isna(x):
         return ""
     if isinstance(x, (datetime, pd.Timestamp)):
         return x.strftime("%d-%m-%Y")
-    if isinstance(x, (int, float)):
-        return f"{x:.2f}"   # ✅ two decimals always
     return str(x).strip()
 
 def generate_files(df: pd.DataFrame):
@@ -42,6 +40,7 @@ def generate_files(df: pd.DataFrame):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
         for i, row in df.iterrows():
+            # Base context
             context = {
                 "wo_no": _safe(row.get("wo_no")),
                 "wo_date": _safe(row.get("wo_date")),
@@ -56,13 +55,13 @@ def generate_files(df: pd.DataFrame):
                 "Payment_Terms": _safe(row.get("Payment Terms")),
             }
 
-            # Build dynamic line items (Line_1, Line_2, Line_3 ...)
-            line_items = []
+            # Build dynamic table items
+            items = []
             for n in [1, 2, 3]:
                 desc = _safe(row.get(f"Line_{n}", ""))
-                if desc:  # only add if description present
-                    line_items.append({
-                        "sr_no": len(line_items) + 1,
+                if desc:  # only add row if description present
+                    items.append({
+                        "sr_no": len(items) + 1,
                         "description": desc,
                         "WO_qty": _safe(row.get(f"Line_{n}_WO_qty")),
                         "PB_qty": _safe(row.get(f"Line_{n}_PB_qty")),
@@ -71,9 +70,9 @@ def generate_files(df: pd.DataFrame):
                         "B_qty": _safe(row.get(f"Line_{n}_B_qty")),
                     })
 
-            context["line_items"] = line_items
+            context["items"] = items
 
-            # Render Word
+            # Render Word file
             doc = DocxTemplate(TEMPLATE_PATH)
             doc.render(context)
 
