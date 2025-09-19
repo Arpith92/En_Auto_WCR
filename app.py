@@ -2,11 +2,12 @@ import os
 import pandas as pd
 from docxtpl import DocxTemplate
 from datetime import datetime
-from docx import Document
 import streamlit as st
+import zipfile
+import io
 
 # ---- Paths ----
-TEMPLATE_DOC = "sample.docx"   # keep this file in the repo root
+TEMPLATE_DOC = "sample.docx"   # keep this file in your repo
 OUT_DIR = "Result"
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -83,12 +84,17 @@ if uploaded_file is not None:
 
     st.success(f"✅ Generated {len(generated_files)} Word files")
 
-    # Allow user to download first generated file (or zip if multiple)
-    for filepath in generated_files:
-        with open(filepath, "rb") as f:
-            st.download_button(
-                label=f"⬇️ Download {os.path.basename(filepath)}",
-                data=f,
-                file_name=os.path.basename(filepath),
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
+    # ---- Zip all generated files ----
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zipf:
+        for file in generated_files:
+            zipf.write(file, arcname=os.path.basename(file))
+    zip_buffer.seek(0)
+
+    # ---- Download button ----
+    st.download_button(
+        label="⬇️ Download All WCR Files (ZIP)",
+        data=zip_buffer,
+        file_name="WCR_Files.zip",
+        mime="application/zip"
+    )
