@@ -5,6 +5,7 @@ from datetime import datetime
 import streamlit as st
 import zipfile
 import io
+import pypandoc
 
 # ---- Paths ----
 TEMPLATE_DOC = "sample.docx"   # keep this file in your repo
@@ -51,7 +52,8 @@ if uploaded_file is not None:
     }
     df = df.rename(columns={c: rename_map.get(c, c) for c in df.columns})
 
-    generated_files = []
+    generated_word = []
+    generated_pdf = []
 
     for i, row in df.iterrows():
         context = {col: _safe(row[col]) for col in df.columns}
@@ -72,29 +74,51 @@ if uploaded_file is not None:
             else:
                 context[f"item_sr_no_{n}"] = ""
 
-        # Render with docxtpl
+        # Render Word with docxtpl
         doc = DocxTemplate(TEMPLATE_DOC)
         doc.render(context)
 
-        # Save output file
+        # Save DOCX
         wo = context.get("wo_no", "") or f"Row{i+1}"
-        out_path = os.path.join(OUT_DIR, f"WCR_{wo}.docx")
-        doc.save(out_path)
-        generated_files.append(out_path)
+        word_path = os.path.join(OUT_DIR, f"WCR_{wo}.docx")
+        doc.save(word_path)
+        generated_word.append(word_path)
 
-    st.success(f"✅ Generated {len(generated_files)} Word files")
+        # Convert DOCX → PDF using pypandoc
+        pdf_path = os.path.join(OUT_DIR, f"WCR_{wo}.pdf")
+        try:
+            pypandoc.convert_file(word_path, "pdf", outputfile=pdf_path, extra_args=['--standalone'])
+            generated_pdf.append(pdf_path)
+        except Exception as e:
+            st.error(f"PDF conversion failed for {word_path}: {e}")
 
-    # ---- Zip all generated files ----
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w") as zipf:
-        for file in generated_files:
+    st.success(f"✅ Generated {len(generated_word)} Word files and {len(generated_pdf)} PDF files")
+
+    # ---- ZIP Word ----
+    zip_word = io.BytesIO()
+    with zipfile.ZipFile(zip_word, "w") as zipf:
+        for file in generated_word:
             zipf.write(file, arcname=os.path.basename(file))
-    zip_buffer.seek(0)
+    zip_word.seek(0)
 
-    # ---- Download button ----
     st.download_button(
-        label="⬇️ Download All WCR Files (ZIP)",
-        data=zip_buffer,
-        file_name="WCR_Files.zip",
+        label="⬇️ Download All WCR Files (Word ZIP)",
+        data=zip_word,
+        file_name="WCR_Word_Files.zip",
         mime="application/zip"
     )
+
+    # ---- ZIP PDF ----
+    if generated_pdf:
+        zip_pdf = io.BytesIO()
+        with zipfile.ZipFile(zip_pdf, "w") as zipf:
+            for file in generated_pdf:
+                zipf.write(file, arcname=os.path.basename(file))
+        zip_pdf.seek(0)
+
+        st.download_button(
+            label="⬇️ Download All WCR Files (PDF ZIP)",
+            data=zip_pdf,
+            file_name="WCR_PDF_Files.zip",
+            mime="application/zip"
+        )
