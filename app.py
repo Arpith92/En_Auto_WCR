@@ -1,104 +1,94 @@
-# app.py – Automated WCR Generator (Word Only, dynamic table rows)
-
-import os, io, zipfile
+import os
 import pandas as pd
-import streamlit as st
-from datetime import datetime
 from docxtpl import DocxTemplate
+from datetime import datetime
+from docx import Document
+import streamlit as st
 
-# ==============================
-# Streamlit Page Config
-# ==============================
-st.set_page_config(page_title="Automated WCR Generator", layout="wide")
-st.title("📝 Automated WCR Generator (Word Only, Dynamic Rows)")
+# ---- Paths ----
+TEMPLATE_DOC = "sample.docx"   # keep this file in the repo root
+OUT_DIR = "Result"
+os.makedirs(OUT_DIR, exist_ok=True)
 
-# ==============================
-# File Upload
-# ==============================
-uploaded_excel = st.file_uploader("📂 Upload Input Excel (.xlsx)", type=["xlsx"])
-
-# Path to Word template (keep in repo)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TEMPLATE_PATH = os.path.join(BASE_DIR, "sample.docx")
-
-# ==============================
-# Helpers
-# ==============================
 def _safe(x):
-    """Convert NaN/datetime/None into a clean string."""
-    if pd.isna(x):
+    """Convert values into clean strings with 0.00 format for numbers."""
+    if pd.isna(x) or x == "":
         return ""
     if isinstance(x, (datetime, pd.Timestamp)):
         return x.strftime("%d-%m-%Y")
-    return str(x).strip()
+    try:
+        num = float(x)
+        return f"{num:.2f}"
+    except (ValueError, TypeError):
+        return str(x).strip()
 
-def generate_files(df: pd.DataFrame):
-    if not os.path.exists(TEMPLATE_PATH):
-        st.error("❌ Word template file (sample.docx) not found in repo.")
-        st.stop()
+# ---- Streamlit UI ----
+st.title("📑 Automated WCR Generator")
 
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w") as zipf:
-        for i, row in df.iterrows():
-            # Base context
-            context = {
-                "wo_no": _safe(row.get("wo_no")),
-                "wo_date": _safe(row.get("wo_date")),
-                "wo_des": _safe(row.get("wo_des")),
-                "Location_code": _safe(row.get("Location_code")),
-                "customername_code": _safe(row.get("customername_code")),
-                "Capacity_code": _safe(row.get("Capacity_code")),
-                "site_incharge": _safe(row.get("site_incharge")),
-                "Scada_incharge": _safe(row.get("Scada_incharge")),
-                "Re_date": _safe(row.get("Re_date")),
-                "Site_Name": _safe(row.get("Site_Name")),
-                "Payment_Terms": _safe(row.get("Payment Terms")),
-            }
+uploaded_file = st.file_uploader("Upload Input Excel File", type=["xlsx"])
 
-            # Build dynamic table items
-            items = []
-            for n in [1, 2, 3]:
-                desc = _safe(row.get(f"Line_{n}", ""))
-                if desc:  # only add row if description present
-                    items.append({
-                        "sr_no": len(items) + 1,
-                        "description": desc,
-                        "WO_qty": _safe(row.get(f"Line_{n}_WO_qty")),
-                        "PB_qty": _safe(row.get(f"Line_{n}_PB_qty")),
-                        "TB_Qty": _safe(row.get(f"Line_{n}_TB_Qty")),
-                        "cu_qty": _safe(row.get(f"Line_{n}_cu_qty")),
-                        "B_qty": _safe(row.get(f"Line_{n}_B_qty")),
-                    })
+if uploaded_file is not None:
+    # ---- Load Excel ----
+    df = pd.read_excel(uploaded_file)
+    df.columns = df.columns.str.strip()
 
-            context["items"] = items
+    # Rename headers for consistency
+    rename_map = {
+        "wo no": "wo_no", "wo_no": "wo_no",
+        "wo date": "wo_date", "wo_date": "wo_date",
+        "wo des": "wo_des", "wo_des": "wo_des",
+        "location_code": "Location_code", "Location_code": "Location_code",
+        "customername_code": "customername_code",
+        "capacity_code": "Capacity_code", "Capacity_code": "Capacity_code",
+        "site_incharge": "site_incharge",
+        "Scada_incharge": "Scada_incharge",
+        "Re_date": "Re_date",
+        "Site_Name": "Site_Name",
+        "Line_1_Workstatus":"Line_1_Workstatus",
+        "Line_2_Workstatus":"Line_2_Workstatus",
+        "Payment Terms": "Payment_Terms"
+    }
+    df = df.rename(columns={c: rename_map.get(c, c) for c in df.columns})
 
-            # Render Word file
-            doc = DocxTemplate(TEMPLATE_PATH)
-            doc.render(context)
+    generated_files = []
 
-            wo = context["wo_no"] or f"Row{i+1}"
-            file_name = f"WCR_{wo}.docx"
-            tmp = io.BytesIO()
-            doc.save(tmp)
-            zipf.writestr(file_name, tmp.getvalue())
+    for i, row in df.iterrows():
+        context = {col: _safe(row[col]) for col in df.columns}
 
-    zip_buffer.seek(0)
-    return zip_buffer
+        # --- Auto-generate Sr. No. ---
+        for n in [1, 2, 3]:
+            fields = [
+                context.get(f"Line_{n}", ""),
+                context.get(f"Line_{n}_WO_qty", ""),
+                context.get(f"Line_{n}_UOM", ""),
+                context.get(f"Line_{n}_PB_qty", ""),
+                context.get(f"Line_{n}_TB_Qty", ""),
+                context.get(f"Line_{n}_cu_qty", ""),
+                context.get(f"Line_{n}_B_qty", "")
+            ]
+            if any(f for f in fields):
+                context[f"item_sr_no_{n}"] = str(n)
+            else:
+                context[f"item_sr_no_{n}"] = ""
 
-# ==============================
-# Main Workflow
-# ==============================
-if uploaded_excel:
-    df = pd.read_excel(uploaded_excel)
-    st.success(f"✅ Loaded {len(df)} rows from Excel.")
-    st.dataframe(df.head(), use_container_width=True)
+        # Render with docxtpl
+        doc = DocxTemplate(TEMPLATE_DOC)
+        doc.render(context)
 
-    if st.button("⬇️ Generate Word Files"):
-        zip_buffer = generate_files(df)
-        st.download_button(
-            "📥 Download All Word Files (ZIP)",
-            data=zip_buffer,
-            file_name="WCR_Word_Files.zip",
-            mime="application/zip",
-            use_container_width=True,
-        )
+        # Save output file
+        wo = context.get("wo_no", "") or f"Row{i+1}"
+        out_path = os.path.join(OUT_DIR, f"WCR_{wo}.docx")
+        doc.save(out_path)
+        generated_files.append(out_path)
+
+    st.success(f"✅ Generated {len(generated_files)} Word files")
+
+    # Allow user to download first generated file (or zip if multiple)
+    for filepath in generated_files:
+        with open(filepath, "rb") as f:
+            st.download_button(
+                label=f"⬇️ Download {os.path.basename(filepath)}",
+                data=f,
+                file_name=os.path.basename(filepath),
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
