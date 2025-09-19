@@ -5,15 +5,14 @@ from datetime import datetime
 import streamlit as st
 import zipfile
 import io
-import pypandoc
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 
-# ---- Paths ----
-TEMPLATE_DOC = "sample.docx"   # keep this file in your repo
+TEMPLATE_DOC = "sample.docx"
 OUT_DIR = "Result"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 def _safe(x):
-    """Convert values into clean strings with 0.00 format for numbers."""
     if pd.isna(x) or x == "":
         return ""
     if isinstance(x, (datetime, pd.Timestamp)):
@@ -24,17 +23,14 @@ def _safe(x):
     except (ValueError, TypeError):
         return str(x).strip()
 
-# ---- Streamlit UI ----
 st.title("📑 Automated WCR Generator")
 
 uploaded_file = st.file_uploader("Upload Input Excel File", type=["xlsx"])
 
 if uploaded_file is not None:
-    # ---- Load Excel ----
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
 
-    # Rename headers for consistency
     rename_map = {
         "wo no": "wo_no", "wo_no": "wo_no",
         "wo date": "wo_date", "wo_date": "wo_date",
@@ -52,73 +48,47 @@ if uploaded_file is not None:
     }
     df = df.rename(columns={c: rename_map.get(c, c) for c in df.columns})
 
-    generated_word = []
-    generated_pdf = []
+    generated_word, generated_pdf = [], []
 
     for i, row in df.iterrows():
         context = {col: _safe(row[col]) for col in df.columns}
 
-        # --- Auto-generate Sr. No. ---
-        for n in [1, 2, 3]:
-            fields = [
-                context.get(f"Line_{n}", ""),
-                context.get(f"Line_{n}_WO_qty", ""),
-                context.get(f"Line_{n}_UOM", ""),
-                context.get(f"Line_{n}_PB_qty", ""),
-                context.get(f"Line_{n}_TB_Qty", ""),
-                context.get(f"Line_{n}_cu_qty", ""),
-                context.get(f"Line_{n}_B_qty", "")
-            ]
-            if any(f for f in fields):
-                context[f"item_sr_no_{n}"] = str(n)
-            else:
-                context[f"item_sr_no_{n}"] = ""
-
-        # Render Word with docxtpl
+        # Word generation
         doc = DocxTemplate(TEMPLATE_DOC)
         doc.render(context)
-
-        # Save DOCX
         wo = context.get("wo_no", "") or f"Row{i+1}"
         word_path = os.path.join(OUT_DIR, f"WCR_{wo}.docx")
         doc.save(word_path)
         generated_word.append(word_path)
 
-        # Convert DOCX → PDF using pypandoc
+        # Simple PDF generation (ReportLab)
         pdf_path = os.path.join(OUT_DIR, f"WCR_{wo}.pdf")
-        try:
-            pypandoc.convert_file(word_path, "pdf", outputfile=pdf_path, extra_args=['--standalone'])
-            generated_pdf.append(pdf_path)
-        except Exception as e:
-            st.error(f"PDF conversion failed for {word_path}: {e}")
+        story = []
+        styles = getSampleStyleSheet()
+        story.append(Paragraph(f"Work Order No: {context.get('wo_no','')}", styles['Title']))
+        story.append(Spacer(1, 12))
+        story.append(Paragraph(f"WO Description: {context.get('wo_des','')}", styles['Normal']))
+        story.append(Paragraph(f"Site: {context.get('Site_Name','')}", styles['Normal']))
+        story.append(Spacer(1, 12))
+        story.append(Paragraph("Work Status:", styles['Heading2']))
+        story.append(Paragraph(f"1. {context.get('Line_1','')} – {context.get('Line_1_Workstatus','')}", styles['Normal']))
+        story.append(Paragraph(f"2. {context.get('Line_2','')} – {context.get('Line_2_Workstatus','')}", styles['Normal']))
+        pdf = SimpleDocTemplate(pdf_path)
+        pdf.build(story)
+        generated_pdf.append(pdf_path)
 
-    st.success(f"✅ Generated {len(generated_word)} Word files and {len(generated_pdf)} PDF files")
-
-    # ---- ZIP Word ----
+    # Zip Word
     zip_word = io.BytesIO()
     with zipfile.ZipFile(zip_word, "w") as zipf:
         for file in generated_word:
             zipf.write(file, arcname=os.path.basename(file))
     zip_word.seek(0)
+    st.download_button("⬇️ Download All WCR Files (Word ZIP)", zip_word, "WCR_Word_Files.zip", "application/zip")
 
-    st.download_button(
-        label="⬇️ Download All WCR Files (Word ZIP)",
-        data=zip_word,
-        file_name="WCR_Word_Files.zip",
-        mime="application/zip"
-    )
-
-    # ---- ZIP PDF ----
-    if generated_pdf:
-        zip_pdf = io.BytesIO()
-        with zipfile.ZipFile(zip_pdf, "w") as zipf:
-            for file in generated_pdf:
-                zipf.write(file, arcname=os.path.basename(file))
-        zip_pdf.seek(0)
-
-        st.download_button(
-            label="⬇️ Download All WCR Files (PDF ZIP)",
-            data=zip_pdf,
-            file_name="WCR_PDF_Files.zip",
-            mime="application/zip"
-        )
+    # Zip PDF
+    zip_pdf = io.BytesIO()
+    with zipfile.ZipFile(zip_pdf, "w") as zipf:
+        for file in generated_pdf:
+            zipf.write(file, arcname=os.path.basename(file))
+    zip_pdf.seek(0)
+    st.download_button("⬇️ Download All WCR Files (PDF ZIP)", zip_pdf, "WCR_PDF_Files.zip", "application/zip")
