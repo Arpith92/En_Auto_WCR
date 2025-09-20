@@ -28,7 +28,7 @@ st.title("📑 Automated WCR Generator")
 uploaded_file = st.file_uploader("Upload Input Excel File", type=["xlsx"])
 
 if uploaded_file is not None:
-    df = pd.read_excel(uploaded_file)
+    df = pd.read_excel(uploaded_file, engine="openpyxl")  # ✅ force openpyxl
     df.columns = df.columns.str.strip()
 
     rename_map = {
@@ -44,7 +44,8 @@ if uploaded_file is not None:
         "Site_Name": "Site_Name",
         "Line_1_Workstatus":"Line_1_Workstatus",
         "Line_2_Workstatus":"Line_2_Workstatus",
-        "Payment Terms": "Payment_Terms"
+        "Payment Terms": "Payment_Terms",
+        "pr_code": "pr_code"   # ✅ added pr_code
     }
     df = df.rename(columns={c: rename_map.get(c, c) for c in df.columns})
 
@@ -69,6 +70,7 @@ if uploaded_file is not None:
         story.append(Spacer(1, 12))
         story.append(Paragraph(f"WO Description: {context.get('wo_des','')}", styles['Normal']))
         story.append(Paragraph(f"Site: {context.get('Site_Name','')}", styles['Normal']))
+        story.append(Paragraph(f"PR Code: {context.get('pr_code','')}", styles['Normal']))  # ✅ included in PDF
         story.append(Spacer(1, 12))
         story.append(Paragraph("Work Status:", styles['Heading2']))
         story.append(Paragraph(f"1. {context.get('Line_1','')} – {context.get('Line_1_Workstatus','')}", styles['Normal']))
