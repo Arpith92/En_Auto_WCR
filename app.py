@@ -44,8 +44,7 @@ if uploaded_file is not None:
         "Site_Name": "Site_Name",
         "Line_1_Workstatus":"Line_1_Workstatus",
         "Line_2_Workstatus":"Line_2_Workstatus",
-        "Payment Terms": "Payment_Terms",
-        "pr_code": "pr_code"   # 🔹 Added mapping for pr_code
+        "Payment Terms": "Payment_Terms"
     }
     df = df.rename(columns={c: rename_map.get(c, c) for c in df.columns})
 
@@ -54,7 +53,7 @@ if uploaded_file is not None:
     for i, row in df.iterrows():
         context = {col: _safe(row[col]) for col in df.columns}
 
-        # Word generation (docxtpl)
+        # Word generation
         doc = DocxTemplate(TEMPLATE_DOC)
         doc.render(context)
         wo = context.get("wo_no", "") or f"Row{i+1}"
@@ -62,7 +61,7 @@ if uploaded_file is not None:
         doc.save(word_path)
         generated_word.append(word_path)
 
-        # PDF generation (reportlab)
+        # Simple PDF generation (ReportLab)
         pdf_path = os.path.join(OUT_DIR, f"WCR_{wo}.pdf")
         story = []
         styles = getSampleStyleSheet()
@@ -70,7 +69,6 @@ if uploaded_file is not None:
         story.append(Spacer(1, 12))
         story.append(Paragraph(f"WO Description: {context.get('wo_des','')}", styles['Normal']))
         story.append(Paragraph(f"Site: {context.get('Site_Name','')}", styles['Normal']))
-        story.append(Paragraph(f"PR Code: {context.get('pr_code','')}", styles['Normal']))  # 🔹 Added PR Code
         story.append(Spacer(1, 12))
         story.append(Paragraph("Work Status:", styles['Heading2']))
         story.append(Paragraph(f"1. {context.get('Line_1','')} – {context.get('Line_1_Workstatus','')}", styles['Normal']))
@@ -79,7 +77,7 @@ if uploaded_file is not None:
         pdf.build(story)
         generated_pdf.append(pdf_path)
 
-    # Download Word ZIP
+    # Zip Word
     zip_word = io.BytesIO()
     with zipfile.ZipFile(zip_word, "w") as zipf:
         for file in generated_word:
@@ -87,7 +85,7 @@ if uploaded_file is not None:
     zip_word.seek(0)
     st.download_button("⬇️ Download All WCR Files (Word ZIP)", zip_word, "WCR_Word_Files.zip", "application/zip")
 
-    # Download PDF ZIP
+    # Zip PDF
     zip_pdf = io.BytesIO()
     with zipfile.ZipFile(zip_pdf, "w") as zipf:
         for file in generated_pdf:
