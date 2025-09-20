@@ -1,94 +1,106 @@
-import os
+# app.py – Automated WCR Generator (Word Only, dynamic table rows)
+
+import os, io, zipfile
 import pandas as pd
-from docxtpl import DocxTemplate
-from datetime import datetime
 import streamlit as st
-import zipfile
-import io
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+from datetime import datetime
+from docxtpl import DocxTemplate
 
-TEMPLATE_DOC = "sample.docx"
-OUT_DIR = "Result"
-os.makedirs(OUT_DIR, exist_ok=True)
+# ==============================
+# Streamlit Page Config
+# ==============================
+st.set_page_config(page_title="Automated WCR Generator (Word Only)", layout="wide")
+st.title("📝 Automated WCR Generator (Word Only)")
 
+# ==============================
+# File Upload
+# ==============================
+uploaded_excel = st.file_uploader("📂 Upload Input Excel (.xlsx)", type=["xlsx"])
+
+# Path to Word template (keep in repo)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_PATH = os.path.join(BASE_DIR, "sample.docx")
+
+# ==============================
+# Helpers
+# ==============================
 def _safe(x):
-    if pd.isna(x) or x == "":
+    """Convert NaN/datetime/None into clean string with 2 decimals for numbers."""
+    if pd.isna(x):
         return ""
     if isinstance(x, (datetime, pd.Timestamp)):
         return x.strftime("%d-%m-%Y")
-    try:
-        num = float(x)
-        return f"{num:.2f}"
-    except (ValueError, TypeError):
-        return str(x).strip()
+    if isinstance(x, (int, float)):
+        return f"{x:.2f}"
+    return str(x).strip()
 
-st.title("📑 Automated WCR Generator")
+def generate_files(df: pd.DataFrame):
+    if not os.path.exists(TEMPLATE_PATH):
+        st.error("❌ Word template file (sample.docx) not found in repo.")
+        st.stop()
 
-uploaded_file = st.file_uploader("Upload Input Excel File", type=["xlsx"])
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zipf:
+        for i, row in df.iterrows():
+            # Header context
+            context = {
+                "wo_no": _safe(row.get("wo_no")),
+                "wo_date": _safe(row.get("wo_date")),
+                "wo_des": _safe(row.get("wo_des")),
+                "Location_code": _safe(row.get("Location_code")),
+                "customername_code": _safe(row.get("customername_code")),
+                "Capacity_code": _safe(row.get("Capacity_code")),
+                "site_incharge": _safe(row.get("site_incharge")),
+                "Scada_incharge": _safe(row.get("Scada_incharge")),
+                "Re_date": _safe(row.get("Re_date")),
+                "Site_Name": _safe(row.get("Site_Name")),
+                "Payment_Terms": _safe(row.get("Payment Terms")),
+            }
 
-if uploaded_file is not None:
-    df = pd.read_excel(uploaded_file)
-    df.columns = df.columns.str.strip()
+            # Line items
+            line_items = []
+            for n in [1, 2, 3]:
+                desc = _safe(row.get(f"Line_{n}", ""))
+                if desc:  # only add if not blank
+                    line_items.append({
+                        "sr_no": len(line_items) + 1,
+                        "description": desc,
+                        "WO_qty": _safe(row.get(f"Line_{n}_WO_qty")),
+                        "PB_qty": _safe(row.get(f"Line_{n}_PB_qty")),
+                        "TB_Qty": _safe(row.get(f"Line_{n}_TB_Qty")),
+                        "cu_qty": _safe(row.get(f"Line_{n}_cu_qty")),
+                        "B_qty": _safe(row.get(f"Line_{n}_B_qty")),
+                    })
 
-    rename_map = {
-        "wo no": "wo_no", "wo_no": "wo_no",
-        "wo date": "wo_date", "wo_date": "wo_date",
-        "wo des": "wo_des", "wo_des": "wo_des",
-        "location_code": "Location_code", "Location_code": "Location_code",
-        "customername_code": "customername_code",
-        "capacity_code": "Capacity_code", "Capacity_code": "Capacity_code",
-        "site_incharge": "site_incharge",
-        "Scada_incharge": "Scada_incharge",
-        "Re_date": "Re_date",
-        "Site_Name": "Site_Name",
-        "Line_1_Workstatus":"Line_1_Workstatus",
-        "Line_2_Workstatus":"Line_2_Workstatus",
-        "Payment Terms": "Payment_Terms"
-    }
-    df = df.rename(columns={c: rename_map.get(c, c) for c in df.columns})
+            context["line_items"] = line_items
 
-    generated_word, generated_pdf = [], []
+            # Render into Word
+            doc = DocxTemplate(TEMPLATE_PATH)
+            doc.render(context)
 
-    for i, row in df.iterrows():
-        context = {col: _safe(row[col]) for col in df.columns}
+            wo = context["wo_no"] or f"Row{i+1}"
+            file_name = f"WCR_{wo}.docx"
+            tmp = io.BytesIO()
+            doc.save(tmp)
+            zipf.writestr(file_name, tmp.getvalue())
 
-        # Word generation
-        doc = DocxTemplate(TEMPLATE_DOC)
-        doc.render(context)
-        wo = context.get("wo_no", "") or f"Row{i+1}"
-        word_path = os.path.join(OUT_DIR, f"WCR_{wo}.docx")
-        doc.save(word_path)
-        generated_word.append(word_path)
+    zip_buffer.seek(0)
+    return zip_buffer
 
-        # Simple PDF generation (ReportLab)
-        pdf_path = os.path.join(OUT_DIR, f"WCR_{wo}.pdf")
-        story = []
-        styles = getSampleStyleSheet()
-        story.append(Paragraph(f"Work Order No: {context.get('wo_no','')}", styles['Title']))
-        story.append(Spacer(1, 12))
-        story.append(Paragraph(f"WO Description: {context.get('wo_des','')}", styles['Normal']))
-        story.append(Paragraph(f"Site: {context.get('Site_Name','')}", styles['Normal']))
-        story.append(Spacer(1, 12))
-        story.append(Paragraph("Work Status:", styles['Heading2']))
-        story.append(Paragraph(f"1. {context.get('Line_1','')} – {context.get('Line_1_Workstatus','')}", styles['Normal']))
-        story.append(Paragraph(f"2. {context.get('Line_2','')} – {context.get('Line_2_Workstatus','')}", styles['Normal']))
-        pdf = SimpleDocTemplate(pdf_path)
-        pdf.build(story)
-        generated_pdf.append(pdf_path)
+# ==============================
+# Main Workflow
+# ==============================
+if uploaded_excel:
+    df = pd.read_excel(uploaded_excel)
+    st.success(f"✅ Loaded {len(df)} rows from Excel.")
+    st.dataframe(df.head(), use_container_width=True)
 
-    # Zip Word
-    zip_word = io.BytesIO()
-    with zipfile.ZipFile(zip_word, "w") as zipf:
-        for file in generated_word:
-            zipf.write(file, arcname=os.path.basename(file))
-    zip_word.seek(0)
-    st.download_button("⬇️ Download All WCR Files (Word ZIP)", zip_word, "WCR_Word_Files.zip", "application/zip")
-
-    # Zip PDF
-    zip_pdf = io.BytesIO()
-    with zipfile.ZipFile(zip_pdf, "w") as zipf:
-        for file in generated_pdf:
-            zipf.write(file, arcname=os.path.basename(file))
-    zip_pdf.seek(0)
-    st.download_button("⬇️ Download All WCR Files (PDF ZIP)", zip_pdf, "WCR_PDF_Files.zip", "application/zip")
+    if st.button("⬇️ Generate Word Files"):
+        zip_buffer = generate_files(df)
+        st.download_button(
+            "📥 Download All Word Files (ZIP)",
+            data=zip_buffer,
+            file_name="WCR_Word_Files.zip",
+            mime="application/zip",
+            use_container_width=True,
+        )
